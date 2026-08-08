@@ -17,10 +17,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 # 1. LLM INITIALIZATION
 # ==========================================
 
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
-    raise ValueError("GEMINI_API_KEY environment variable is not set.")
+    raise ValueError("GOOGLE_API_KEY environment variable is not set.")
 
 llm_flash = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite-preview",
