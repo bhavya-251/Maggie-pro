@@ -4,5 +4,4 @@ langchain-google-genai
 langchain-core
 langgraph
 pydantic
-langchain
 python-multiport
