@@ -4,8 +4,8 @@ import io
 import traceback
 from typing import TypedDict, List, Optional
 
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Form
+from fastapi.responses import HTMLResponse
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.tools import tool
@@ -17,10 +17,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 # 1. LLM INITIALIZATION
 # ==========================================
 
-api_key = os.getenv("GOOGLE_API_KEY")
+api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
-    raise ValueError("GOOGLE_API_KEY environment variable is not set.")
+    raise ValueError("GEMINI_API_KEY environment variable is not set.")
 
 llm_flash = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite-preview",
@@ -65,9 +65,7 @@ def run_python_code(code: str) -> str:
 
     try:
         local_scope = {}
-
         exec(clean_code, {}, local_scope)
-
         result = new_stdout.getvalue()
 
     except Exception:
@@ -84,7 +82,7 @@ def generate_test_cases(
     task_description: str,
     developer_code: str
 ) -> str:
-    """Generate specific test scenarios for the given coding task and developer-generated code."""
+    """Generate test scenarios for the Developer's code."""
 
     prompt = f"""
 You are a Senior QA Engineer.
@@ -93,8 +91,6 @@ You are working ONLY as the TESTER.
 
 The Developer has already completed the coding task.
 The Developer must NOT participate in testing.
-
-Your job is to test the code provided below.
 
 CODING TASK:
 {task_description}
@@ -126,11 +122,6 @@ Do NOT generate a new solution.
 # 4. GRAPH NODES
 # ==========================================
 
-
-# ------------------------------------------
-# TASK INPUT NODE
-# ------------------------------------------
-
 def task_input_node(state: CrewState):
 
     return {
@@ -139,7 +130,7 @@ def task_input_node(state: CrewState):
 
 
 # ------------------------------------------
-# DEVELOPER NODE
+# DEVELOPER
 # ------------------------------------------
 
 def real_time_developer(state: CrewState):
@@ -189,14 +180,7 @@ Do not include ```python.
 
 
 # ------------------------------------------
-# TESTER NODE
-# ------------------------------------------
-#
-# Developer has already finished.
-# Tester receives the Developer's code
-# through state["code"].
-#
-# Developer is NOT called here.
+# TESTER
 # ------------------------------------------
 
 def real_time_tester(state: CrewState):
@@ -210,7 +194,7 @@ def real_time_tester(state: CrewState):
             "report": "Testing failed: No code was provided by Developer."
         }
 
-    # Generate test cases independently
+    # Tester independently generates test cases
     test_cases = generate_test_cases.invoke({
         "task_description": task,
         "developer_code": developer_code
@@ -231,12 +215,11 @@ def real_time_tester(state: CrewState):
     else:
         cases_str = str(test_cases)
 
-    # Execute Developer's code
+    # Tester executes Developer's completed code
     execution_result = run_python_code.invoke({
         "code": developer_code
     })
 
-    # Create report
     report = f"""
 ### EXECUTION OUTPUT:
 
@@ -253,20 +236,10 @@ def real_time_tester(state: CrewState):
 
 
 # ------------------------------------------
-# MANAGER NODE
+# MANAGER
 # ------------------------------------------
 
 def manager_decision_node(state: CrewState):
-
-    # In Render there is no input().
-    # The API request supplies the command.
-
-    command = state.get("next_step", "store")
-
-    if command == "another":
-        return {
-            "next_step": "task_input"
-        }
 
     return {
         "next_step": "archiver"
@@ -274,7 +247,7 @@ def manager_decision_node(state: CrewState):
 
 
 # ------------------------------------------
-# ARCHIVER NODE
+# ARCHIVER
 # ------------------------------------------
 
 def archiver_node(state: CrewState):
@@ -285,11 +258,10 @@ def archiver_node(state: CrewState):
 
 
 # ==========================================
-# 5. GRAPH CONSTRUCTION & ROUTING
+# 5. GRAPH CONSTRUCTION
 # ==========================================
 
 rt_workflow = StateGraph(CrewState)
-
 
 rt_workflow.add_node(
     "task_input",
@@ -354,14 +326,11 @@ rt_workflow.add_edge(
 )
 
 
-# MANAGER ROUTING
+# MANAGER -> ARCHIVER
 
 def route_from_decision(state: CrewState):
 
-    if state.get("next_step") == "archiver":
-        return "archiver"
-
-    return "task_input"
+    return "archiver"
 
 
 rt_workflow.add_conditional_edges(
@@ -378,7 +347,7 @@ rt_workflow.add_edge(
 )
 
 
-# Compile workflow
+# Compile
 
 rt_app = rt_workflow.compile()
 
@@ -387,60 +356,265 @@ rt_app = rt_workflow.compile()
 # 6. FASTAPI APPLICATION
 # ==========================================
 
-app = FastAPI(
-    title="LangGraph Developer Tester",
-    description="Developer → Tester → Manager LangGraph workflow"
-)
+app = FastAPI()
 
 
 # ==========================================
-# REQUEST MODEL
+# WEBSITE HOME PAGE
 # ==========================================
 
-class TaskRequest(BaseModel):
-    task: str
-    command: str = "store"
-
-
-# ==========================================
-# HOME ROUTE
-# ==========================================
-
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def home():
 
-    return {
-        "message": "LangGraph Developer → Tester workflow is running.",
-        "endpoint": "/run",
-        "method": "POST"
-    }
+    return """
+    <!DOCTYPE html>
+
+    <html>
+
+    <head>
+
+        <title>LangGraph Developer Tester</title>
+
+        <style>
+
+            body {
+                font-family: Arial, sans-serif;
+                background: #f4f4f4;
+                margin: 0;
+                padding: 0;
+            }
+
+            .container {
+                max-width: 900px;
+                margin: 50px auto;
+                background: white;
+                padding: 35px;
+                border-radius: 12px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            }
+
+            h1 {
+                text-align: center;
+                margin-bottom: 10px;
+            }
+
+            .subtitle {
+                text-align: center;
+                color: #666;
+                margin-bottom: 30px;
+            }
+
+            label {
+                font-weight: bold;
+                display: block;
+                margin-bottom: 10px;
+            }
+
+            textarea {
+                width: 100%;
+                height: 140px;
+                padding: 12px;
+                font-size: 16px;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                box-sizing: border-box;
+                resize: vertical;
+            }
+
+            button {
+                margin-top: 15px;
+                width: 100%;
+                padding: 13px;
+                font-size: 17px;
+                font-weight: bold;
+                border: none;
+                border-radius: 8px;
+                background: #333;
+                color: white;
+                cursor: pointer;
+            }
+
+            button:hover {
+                background: #555;
+            }
+
+            .flow {
+                text-align: center;
+                margin: 25px 0;
+                font-weight: bold;
+                color: #555;
+            }
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="container">
+
+            <h1>LangGraph Developer → Tester</h1>
+
+            <p class="subtitle">
+                Enter a coding task and let the Developer and Tester agents work on it.
+            </p>
+
+            <div class="flow">
+                Developer → Tester → Manager
+            </div>
+
+            <form action="/run" method="post">
+
+                <label for="task">
+                    Enter your coding task:
+                </label>
+
+                <textarea
+                    id="task"
+                    name="task"
+                    placeholder="Example: Write a Python program to perform merge sort."
+                    required
+                ></textarea>
+
+                <button type="submit">
+                    Run Workflow
+                </button>
+
+            </form>
+
+        </div>
+
+    </body>
+
+    </html>
+    """
 
 
 # ==========================================
 # RUN WORKFLOW
 # ==========================================
 
-@app.post("/run")
-def run_workflow(request: TaskRequest):
+@app.post("/run", response_class=HTMLResponse)
+def run_workflow(task: str = Form(...)):
 
     initial_state: CrewState = {
         "messages": [
-            HumanMessage(content=request.task)
+            HumanMessage(content=task)
         ],
-        "next_step": request.command,
+        "next_step": "developer",
         "code": None,
         "report": None
     }
 
-    # Run Developer -> Tester -> Manager
     result = rt_app.invoke(initial_state)
 
-    return {
-        "task": request.task,
-        "generated_code": result.get("code"),
-        "test_report": result.get("report"),
-        "next_step": result.get("next_step")
-    }
+    generated_code = result.get(
+        "code",
+        "No code generated."
+    )
+
+    test_report = result.get(
+        "report",
+        "No test report generated."
+    )
+
+    # Convert newlines to HTML
+    generated_code_html = (
+        generated_code
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+    test_report_html = (
+        test_report
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+    return f"""
+    <!DOCTYPE html>
+
+    <html>
+
+    <head>
+
+        <title>LangGraph Results</title>
+
+        <style>
+
+            body {{
+                font-family: Arial, sans-serif;
+                background: #f4f4f4;
+                margin: 0;
+                padding: 30px;
+            }}
+
+            .container {{
+                max-width: 1000px;
+                margin: auto;
+                background: white;
+                padding: 30px;
+                border-radius: 12px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            }}
+
+            h1 {{
+                text-align: center;
+            }}
+
+            h2 {{
+                margin-top: 30px;
+            }}
+
+            pre {{
+                background: #f1f1f1;
+                padding: 20px;
+                border-radius: 8px;
+                white-space: pre-wrap;
+                overflow-x: auto;
+            }}
+
+            .back {{
+                display: block;
+                text-align: center;
+                margin-top: 30px;
+                padding: 12px;
+                background: #333;
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+            }}
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="container">
+
+            <h1>Workflow Result</h1>
+
+            <h2>🧑‍💻 Developer - Generated Code</h2>
+
+            <pre>{generated_code_html}</pre>
+
+            <h2>🧪 Tester - Test Report</h2>
+
+            <pre>{test_report_html}</pre>
+
+            <a class="back" href="/">
+                ← Try Another Task
+            </a>
+
+        </div>
+
+    </body>
+
+    </html>
+    """
 
 
 # ==========================================
@@ -451,7 +625,9 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
 
     uvicorn.run(
         app,
