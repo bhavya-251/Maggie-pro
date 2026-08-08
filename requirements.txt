@@ -5,3 +5,4 @@ langchain-core
 langgraph
 pydantic
 langchain
+python-multiport
